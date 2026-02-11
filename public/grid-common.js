@@ -858,10 +858,6 @@
       homeLink.href = '/index.html';
     }
 
-    function isAdminEmail(email) {
-      return email === 'jgtaylor@gmail.com' || email === 'matthewdtaylor@me.com' || email === 'matthewdtaylor@gmail.com';
-    }
-
     async function checkPasswordAccess(boardData) {
       const boardPassword = boardData.password || '';
       if (!boardPassword) return true; // no password required

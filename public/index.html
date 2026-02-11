@@ -235,9 +235,6 @@
       const emailAuthSection = document.getElementById('email-auth');
       const emailInput = document.getElementById('email');
       const passwordInput = document.getElementById('password');
-      function isAdminEmail(email) {
-        return email === 'jgtaylor@gmail.com' || email === 'matthewdtaylor@me.com' || email === 'matthewdtaylor@gmail.com';
-      }
       // Journal UI removed; rules section shown instead
       function getWelcomeText(user) {
         const email = (user && user.email) ? user.email : '';
@@ -248,17 +245,12 @@
 
       function setAuthedUI(authed, user) {
         dlog('setAuthedUI', { authed, email: user && user.email, uid: user && user.uid });
-        const isAdmin = authed && user && isAdminEmail(user.email || '');
-        if (adminNavLink) adminNavLink.classList.toggle('hidden', !isAdmin);
+        if (adminNavLink) adminNavLink.classList.toggle('hidden', !authed);
         const userInfoEl = document.getElementById('user-info');
         if (authed) {
           if (userInfoEl) {
             const welcome = getWelcomeText(user);
-            if (isAdmin) {
-              userInfoEl.innerHTML = `${welcome} <a href="/admin.html" class="admin-link" style="margin-left:8px;">Admin</a>`;
-            } else {
-              userInfoEl.textContent = welcome;
-            }
+            userInfoEl.innerHTML = `${welcome} <a href="/admin.html" class="admin-link" style="margin-left:8px;">Admin</a>`;
           }
           // Toggle Google button to Sign Out when authenticated
           if (googleSignInBtn) googleSignInBtn.textContent = 'Sign Out';
