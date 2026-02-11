@@ -200,13 +200,13 @@ firebase deploy --only firestore
 
 ## Admin Functions
 
-Admins (hardcoded emails in code) can:
+All authenticated users can:
 - Create new boards with passwords and short codes
 - Update board details (teams, passwords, short codes)
 - Lock/unlock boards
 - Clear or populate random numbers
 - Delete boards
-- View all boards
+- View boards they have created or accessed
 
 ## Browser Support
 
