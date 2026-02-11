@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#3b82f6" />
+    <title>Shared Squares Grid</title>
+    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  </head>
+  <body class="grid-page">
+    <header>
+      <nav class="year-links">
+        <select id="year-select" class="year-select">
+          <option value="" disabled>Select Contest...</option>
+        </select>
+        <div class="actions">
+          <a href="/index.html" class="btn-link">Home</a>
+        </div>
+      </nav>
+    </header>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <section id="grid-section">
+      <h2 class="grid-title">Team A</h2>
+      <div id="user-res-count" class="user-count">Your squares: 0</div>
+      <div class="grid-wrapper">
+        <div class="team-b-label">Team B</div>
+        <div id="squares-grid" class="grid"></div>
+      </div>
+    </section>
+
+    <!-- Firebase SDKs for Firestore persistence -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
+    <script src="/__/firebase/init.js"></script>
+    <script src="/grid-common.js?v=20260210"></script>
+    <div class="user-info-bottom" id="user-tag-footer"></div>
+  </body>
+ </html>

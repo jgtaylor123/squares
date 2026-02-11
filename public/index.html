@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#3b82f6" />
+    <title>Squares Board</title>
+    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  </head>
+  <body class="home">
+    <header>
+      <nav class="year-links">
+        <select id="year-select" class="year-select">
+          <option value="" selected disabled>Select Contest...</option>
+        </select>
+        
+        <div class="actions">
+          <button id="install-app" class="hidden" style="background: #10b981;">Install App</button>
+          <button id="google-signin">Sign in with Google</button>
+        </div>
+      </nav>
+    </header>
+    <hr />
+    <h1 class="board-title">Squares Board</h1>
+    <section id="email-auth">
+      <h2>Email Login</h2>
+      <form id="email-login-form">
+        <input type="email" id="email" placeholder="Email" required />
+        <span style="position:relative;display:block;width:100%;">
+          <input type="password" id="password" placeholder="Password" required style="width:100%;padding-right:30px;" />
+          <button type="button" id="toggle-password" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:2px 4px;border:none;background:transparent;cursor:pointer;font-size:14px;">👁</button>
+        </span>
+        <div style="display:flex;align-items:center;gap:12px;margin:8px 0;">
+          <button type="submit">Submit</button>
+          <button type="button" id="resetPassword">Forgot password?</button>
+        </div>
+      </form>
+      <p class="hint">First submit will create an account if it doesn't exist.</p>
+    </section>
+
+    <section id="rules">
+      <h2>Square Selection Rules</h2>
+      <ol>
+        <li>Sign in and select a contest in the drop down</li>
+        <li>Reserve by clicking an "X" in the grid.</li>
+        <li>Only the reserver can cancel their own square.</li>
+        <li>random numbers for the team scores will be generated at kick off</li>
+        <li>payouts for 1st, 2nd, 3rd quarters and final (20%, 20%, 20% and 40% of total pot)</li>
+        <li>if the last digit of the score for each team lines up with one of your squares, you win the disignated amount.</li>
+      </ol>
+    </section>
+
+    <!-- Grid moved to dedicated year pages -->
+
+    <!-- Firebase SDKs (Compat for simplicity) -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
+    <!-- Auto-injected config on Hosting -->
+    <script src="/__/firebase/init.js"></script>
+
+    <script>
+      // PartyID logic: assign to logged-in users; filter contests by PartyID param
+
+      
+      function generatePartyId(len = 32) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let out = '';
+        const cryptoObj = (window.crypto && window.crypto.getRandomValues) ? window.crypto : null;
+        if (cryptoObj) {
+          const arr = new Uint32Array(len);
+          cryptoObj.getRandomValues(arr);
+          for (let i = 0; i < len; i++) out += chars[arr[i] % chars.length];
+        } else {
+          for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return out;
+      }
+      const PARTY_ID_PARAM = (function(){ try { return new URLSearchParams(location.search || '').get('PartyID') || ''; } catch { return ''; }})();
+      const DEBUG_AUTH = true;
+      function dlog(...args) { if (DEBUG_AUTH) console.log('[Auth]', ...args); }
+      const REDIRECT_FLAG_KEY = 'auth_redirect_initiated';
+      const wasRedirect = (function(){ try { return sessionStorage.getItem(REDIRECT_FLAG_KEY) === '1'; } catch { return false; }})();
+      dlog('wasRedirect', wasRedirect);
+      // Year dropdown navigation
+      (function setupYearSelect(){
+        const yearSelect = document.getElementById('year-select');
+        if (!yearSelect) return;
+        yearSelect.addEventListener('change', (e) => {
+          const url = e.target.value;
+          if (url) window.location.href = url;
+        });
+      })();
+      // Initialize using Hosting-provided config if available
+      (function initFirebase() {
+        try {
+          dlog('initFirebase start');
+          if (!firebase.apps.length) {
+            if (window.firebaseConfig) {
+              dlog('Initializing with window.firebaseConfig');
+              firebase.initializeApp(window.firebaseConfig);
+            } else {
+              // Fallback to default app if init.js already initialized
+              dlog('Using existing default app from init.js');
+              firebase.app();
+            }
+          }
+          const app = firebase.app();
+          try { dlog('Firebase app name:', app && app.name); } catch {}
+        } catch (e) {
+          console.error('Firebase init error:', e);
+        }
+      })();
+
+      const auth = firebase.auth();
+      const db = firebase.firestore();
+      const googleProvider = new firebase.auth.GoogleAuthProvider();
+      // Ensure session persistence; prefer SESSION on mobile Safari/Android to avoid ITP/storage issues
+      try {
+        const ua = navigator.userAgent || '';
+        const isMobile = /iPhone|iPad|iPod|Android|Mobile/i.test(ua);
+        const persistence = isMobile ? firebase.auth.Auth.Persistence.SESSION : firebase.auth.Auth.Persistence.LOCAL;
+        auth.setPersistence(persistence)
+          .then(() => dlog('Auth persistence set', { persistence: isMobile ? 'SESSION' : 'LOCAL' }))
+          .catch((e) => dlog('Auth persistence error', { code: e && e.code, message: e && e.message }));
+      } catch (e) { dlog('Auth persistence threw', { code: e && e.code, message: e && e.message }); }
+      try {
+        googleProvider.addScope('email');
+        googleProvider.addScope('profile');
+        googleProvider.setCustomParameters({ prompt: 'select_account' });
+        dlog('GoogleAuthProvider configured with scopes email, profile and prompt select_account');
+      } catch {}
+
+      // Enhance year dropdown with boards user has created or accessed
+      let loadDropdown = null; // Function reference to reload dropdown
+      (function enhanceYearSelectLabels(){
+        const DEFAULT_A = 'Team A';
+        const DEFAULT_B = 'Team B';
+        const select = document.getElementById('year-select');
+        if (!select) return;
+        
+        loadDropdown = async function(user) {
+          const placeholder = select.querySelector('option[value=""]');
+          if (placeholder) placeholder.textContent = 'Loading contests...';
+          const spinner = document.getElementById('year-loading');
+          if (spinner) spinner.classList.remove('hidden');
+          
+          // Reset dropdown
+          Array.from(select.options).forEach((opt) => { if ((opt.value || '') !== '') opt.remove(); });
+          
+          try {
+            // Get boards created by user
+            const createdBoards = await db.collection('grids')
+              .where('createdBy', '==', user.email)
+              .get();
+            
+            // Get user's accessed boards
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            const userData = userDoc.exists ? userDoc.data() : {};
+            const accessedBoardIds = userData.accessedBoards || [];
+            
+            // Fetch accessed boards
+            const accessedBoardsPromises = accessedBoardIds.map(boardId => 
+              db.collection('grids').doc(boardId).get()
+            );
+            const accessedBoards = await Promise.all(accessedBoardsPromises);
+            
+            // Combine boards (use Map to deduplicate by boardId)
+            const boardsMap = new Map();
+            
+            createdBoards.forEach((doc) => {
+              if (doc.exists) {
+                boardsMap.set(doc.id, doc);
+                console.log('Added created board to dropdown:', doc.id);
+              }
+            });
+            
+            accessedBoards.forEach((doc, index) => {
+              const boardId = accessedBoardIds[index];
+              if (doc.exists) {
+                boardsMap.set(doc.id, doc);
+                console.log('Added accessed board to dropdown:', doc.id);
+              } else {
+                console.warn('Board in accessedBoards does not exist:', boardId);
+              }
+            });
+            
+            // Populate dropdown
+            boardsMap.forEach((doc) => {
+              const id = doc.id;
+              const data = doc.data() || {};
+              const a = data.teamA || DEFAULT_A;
+              const b = data.teamB || DEFAULT_B;
+              const label = data.label || id.substring(0, 8);
+              const opt = document.createElement('option');
+              opt.value = '/grid.html?boardID=' + encodeURIComponent(id);
+              opt.textContent = `${label} — ${a} vs ${b}`;
+              select.appendChild(opt);
+            });
+            
+            if (placeholder) placeholder.textContent = boardsMap.size > 0 ? 'Select contest' : 'No boards available';
+            if (spinner) spinner.classList.add('hidden');
+          } catch (err) {
+            console.warn('Failed to load contests:', err);
+            if (placeholder) placeholder.textContent = 'Select contest';
+            if (spinner) spinner.classList.add('hidden');
+          }
+        };
+        
+        auth.onAuthStateChanged(async (user) => {
+          if (!user) {
+            // Clear all options except placeholder when logged out
+            Array.from(select.options).forEach((opt) => { if ((opt.value || '') !== '') opt.remove(); });
+            const placeholder = select.querySelector('option[value=""]');
+            if (placeholder) placeholder.textContent = 'Login to see contests';
+            select.dataset.loaded = '0'; // Reset loaded flag so dropdown can reload on next login
+            return;
+          }
+          
+          // Don't auto-load here - let main auth handler call loadDropdown
+        });
+      })();
+
+      // user-info is rendered after script; query when needed
+      const googleSignInBtn = document.getElementById('google-signin');
+      const authStatus = document.createElement('div');
+      authStatus.id = 'auth-status';
+      authStatus.className = 'hint';
+      const actions = document.querySelector('.actions');
+      if (actions) actions.appendChild(authStatus);
+      const adminNavLink = document.querySelector('a.admin-link[href="/admin.html"]');
+      const emailForm = document.getElementById('email-login-form');
+      const emailAuthSection = document.getElementById('email-auth');
+      const emailInput = document.getElementById('email');
+      const passwordInput = document.getElementById('password');
+      function isAdminEmail(email) {
+        return email === 'jgtaylor@gmail.com' || email === 'matthewdtaylor@me.com' || email === 'matthewdtaylor@gmail.com';
+      }
+      // Journal UI removed; rules section shown instead
+      function getWelcomeText(user) {
+        const email = (user && user.email) ? user.email : '';
+        return email ? `Welcome ${email}` : 'Welcome';
+      }
+
+      // Grid rendering moved to year pages
+
+      function setAuthedUI(authed, user) {
+        dlog('setAuthedUI', { authed, email: user && user.email, uid: user && user.uid });
+        const isAdmin = authed && user && isAdminEmail(user.email || '');
+        if (adminNavLink) adminNavLink.classList.toggle('hidden', !isAdmin);
+        const userInfoEl = document.getElementById('user-info');
+        if (authed) {
+          if (userInfoEl) {
+            const welcome = getWelcomeText(user);
+            if (isAdmin) {
+              userInfoEl.innerHTML = `${welcome} <a href="/admin.html" class="admin-link" style="margin-left:8px;">Admin</a>`;
+            } else {
+              userInfoEl.textContent = welcome;
+            }
+          }
+          // Toggle Google button to Sign Out when authenticated
+          if (googleSignInBtn) googleSignInBtn.textContent = 'Sign Out';
+          // Hide email/password auth when logged in
+          emailAuthSection.classList.add('hidden');
+          if (emailInput) emailInput.disabled = true;
+          if (passwordInput) passwordInput.disabled = true;
+          // Grid is not on index
+        } else {
+          if (userInfoEl) userInfoEl.textContent = 'Not signed in';
+          // Toggle Google button back to Sign In when not authenticated
+          if (googleSignInBtn) googleSignInBtn.textContent = 'Sign in with Google';
+          // Show email/password auth when logged out
+          emailAuthSection.classList.remove('hidden');
+          if (emailInput) emailInput.disabled = false;
+          if (passwordInput) passwordInput.disabled = false;
+          // Grid is not on index
+        }
+      }
+
+      // Apply initial UI state immediately (handles already-authenticated sessions)
+      dlog('Initial auth.currentUser', auth && auth.currentUser);
+      setAuthedUI(!!auth.currentUser, auth.currentUser || {});
+      // Process redirect results for Google sign-in to surface errors
+      auth.getRedirectResult().then((result) => {
+        dlog('getRedirectResult resolved', { hasUser: !!(result && result.user), providerId: result && result.providerId });
+        // Always clear the redirect flag when getRedirectResult completes
+        try { sessionStorage.removeItem(REDIRECT_FLAG_KEY); } catch {}
+        
+        if (result && result.user) {
+          setAuthedUI(true, result.user);
+          authStatus.textContent = '';
+        } else if (auth.currentUser) {
+          dlog('No redirect result user, but auth.currentUser present');
+          setAuthedUI(true, auth.currentUser);
+          authStatus.textContent = '';
+        } else {
+          // getRedirectResult completed but no user - check if we were expecting one
+          const wasExpectingRedirect = (function(){ try { return sessionStorage.getItem('was_redirecting') === '1'; } catch { return false; }})();
+          if (wasExpectingRedirect) {
+            dlog('Expected redirect result but got none');
+            authStatus.textContent = 'Sign-in failed. On iOS, ensure cookies are enabled and not in Private mode.';
+            try { sessionStorage.removeItem('was_redirecting'); } catch {}
+          }
+        }
+      }).catch((e) => {
+        dlog('getRedirectResult error', { code: e && e.code, message: e && e.message });
+        authStatus.textContent = 'Google sign-in failed: ' + (e && e.message ? e.message : 'Unknown error');
+        try { sessionStorage.removeItem(REDIRECT_FLAG_KEY); } catch {}
+        try { sessionStorage.removeItem('was_redirecting'); } catch {}
+      });
+      auth.onAuthStateChanged(async (user) => {
+        dlog('onAuthStateChanged', { authed: !!user, email: user && user.email, uid: user && user.uid });
+        setAuthedUI(!!user, user || {});
+        
+        // Check if user just logged in and track any pending board access
+        if (user && user.uid) {
+          try {
+            const pendingBoardId = localStorage.getItem('lastBoardAccessed');
+            if (pendingBoardId) {
+              console.log('User logged in on home page, tracking pending board:', pendingBoardId);
+              const userRef = db.collection('users').doc(user.uid);
+              await userRef.set({
+                accessedBoards: firebase.firestore.FieldValue.arrayUnion(pendingBoardId)
+              }, { merge: true });
+              localStorage.removeItem('lastBoardAccessed');
+              console.log('Tracked pending board access:', pendingBoardId);
+            }
+          } catch (e) {
+            console.warn('Failed to track pending board access:', e);
+          }
+          
+          // Load dropdown after tracking pending board
+          if (loadDropdown) {
+            await loadDropdown(user);
+          }
+        }
+        
+        // Assign PartyID to logged-in users if missing
+        try {
+          if (user && user.uid) {
+            const userRef = db.collection('users').doc(user.uid);
+            const snap = await userRef.get();
+            const data = snap.exists ? (snap.data() || {}) : {};
+            let pid = data.partyId || '';
+            if (!pid) {
+              pid = generatePartyId(32);
+              await userRef.set({
+                email: user.email || '',
+                displayName: user.displayName || '',
+                partyId: pid,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              }, { merge: true });
+            }
+            // Surface Admin link after login
+            const userInfoEl = document.getElementById('user-info');
+            if (userInfoEl) {
+              const welcome = getWelcomeText(user);
+              const adminHref = '/admin.html';
+              userInfoEl.innerHTML = `${welcome} <a href="${adminHref}" class="admin-link" style="margin-left:8px;">Admin</a>`;
+            }
+          }
+        } catch (e) { dlog('PartyID assign error', { code: e && e.code, message: e && e.message }); }
+      });
+
+      googleSignInBtn.addEventListener('click', async () => {
+        dlog('Google Sign-In button clicked', { authed: !!auth.currentUser });
+        // If already signed in, clicking acts as Sign Out
+        if (auth.currentUser) {
+          try {
+            console.log('Before logout - stored passwords:', localStorage.getItem('shared_grid_passwords'));
+            await auth.signOut();
+            // Clear stored passwords on logout
+            try {
+              localStorage.removeItem('shared_grid_passwords');
+              console.log('Cleared passwords on logout');
+            } catch {}
+            console.log('After logout - stored passwords:', localStorage.getItem('shared_grid_passwords'));
+            dlog('Signed out successfully');
+          } catch (e) {
+            dlog('Sign out error', { code: e && e.code, message: e && e.message });
+            alert('Sign out failed: ' + e.message);
+          }
+          return;
+        }
+        // Otherwise, perform Google Sign In
+        try {
+          // Try popup first (works better on modern mobile browsers)
+          dlog('Starting signInWithPopup');
+          const cred = await auth.signInWithPopup(googleProvider);
+          dlog('signInWithPopup completed', { hasUser: !!(cred && cred.user) });
+          try { if (cred && cred.user) setAuthedUI(true, cred.user); } catch {}
+        } catch (e) {
+          console.error('Google sign-in error:', e);
+          dlog('Google sign-in error details', { code: e && e.code, message: e && e.message, name: e && e.name });
+          if (e.code === 'auth/configuration-not-found' || e.code === 'auth/operation-not-allowed') {
+            alert('Google sign-in is not configured. Enable Google provider in Firebase Console > Authentication > Sign-in method, and ensure squares-7da21.web.app is in Authorized domains.');
+          } else if (e.code === 'auth/unauthorized-domain') {
+            alert('Unauthorized domain. Add squares-7da21.web.app to Authorized domains in Firebase Auth settings.');
+          } else if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
+            // If popup fails, try redirect
+            try {
+              dlog('Popup blocked/closed, falling back to redirect');
+              try { 
+                sessionStorage.setItem(REDIRECT_FLAG_KEY, '1');
+                sessionStorage.setItem('was_redirecting', '1');
+              } catch {}
+              await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+              await auth.signInWithRedirect(googleProvider);
+              dlog('Fallback signInWithRedirect initiated');
+            } catch (e2) {
+              dlog('Fallback redirect error', { code: e2 && e2.code, message: e2 && e2.message });
+              authStatus.textContent = 'Sign-in failed. Please check your browser settings allow popups and cookies.';
+            }
+          } else {
+            authStatus.textContent = 'Google sign-in failed: ' + e.message;
+          }
+        }
+      });
+
+      // Manual redirect button removed (no longer needed)
+
+      emailForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        if (!email || !password) { alert('Email and password are required.'); return; }
+        try {
+          // Try to sign in first
+          await auth.signInWithEmailAndPassword(email, password);
+        } catch (e) {
+          if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') {
+            // User doesn't exist, create new account
+            try {
+              await auth.createUserWithEmailAndPassword(email, password);
+            } catch (e2) {
+              if (e2.code === 'auth/email-already-in-use') {
+                alert('Incorrect password. Please try again or use Forgot password.');
+              } else if (e2.code === 'auth/weak-password') {
+                alert('Password is too weak. Use at least 6 characters.');
+              } else {
+                alert('Sign up failed: ' + e2.message);
+              }
+            }
+          } else if (e.code === 'auth/wrong-password') {
+            alert('Incorrect password. Please try again or use Forgot password.');
+          } else if (e.code === 'auth/invalid-email') {
+            alert('Invalid email address format.');
+          } else if (e.code === 'auth/operation-not-allowed') {
+            alert('Email/Password sign-in is not enabled. Enable it in Firebase Console > Authentication > Sign-in method.');
+          } else if (e.code === 'auth/weak-password') {
+            alert('Password is too weak. Use at least 6 characters.');
+          } else if (e.code === 'auth/too-many-requests') {
+            alert('Too many attempts. Please wait and try again later.');
+          } else {
+            alert('Sign in failed: ' + e.message);
+          }
+        }
+      });
+
+      // Toggle password visibility
+      document.getElementById('toggle-password').addEventListener('click', (e) => {
+        e.preventDefault();
+        const passwordInput = document.getElementById('password');
+        const toggleBtn = document.getElementById('toggle-password');
+        const isPassword = passwordInput.type === 'password';
+        passwordInput.type = isPassword ? 'text' : 'password';
+        toggleBtn.textContent = isPassword ? '🙈' : '👁';
+      });
+
+      document.getElementById('resetPassword').addEventListener('click', async () => {
+        const email = document.getElementById('email').value.trim();
+        if (!email) { alert('Enter your email first.'); return; }
+        try {
+          await auth.sendPasswordResetEmail(email);
+          alert('Password reset email sent. Check your inbox.');
+        } catch (e) {
+          alert('Failed to send reset email: ' + e.message);
+        }
+      });
+
+      // Journal entry form removed
+      
+      // PWA Installation
+      let deferredPrompt;
+      const installButton = document.getElementById('install-app');
+      
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        installButton.classList.remove('hidden');
+      });
+      
+      installButton.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log('Install outcome:', outcome);
+        deferredPrompt = null;
+        installButton.classList.add('hidden');
+      });
+      
+      window.addEventListener('appinstalled', () => {
+        console.log('PWA installed');
+        installButton.classList.add('hidden');
+      });
+      
+      // Register Service Worker
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/service-worker.js')
+          .then(reg => console.log('Service Worker registered'))
+          .catch(err => console.log('Service Worker registration failed:', err));
+      }
+    </script>
+    <div class="user-info-bottom" id="user-info"></div>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "squares-journal",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "deploy": "firebase deploy --only hosting,firestore",
+    "use": "firebase use squares-7da21"
+  },
+  "description": "A minimal web app that lets users sign in (Google or Email/Password) and write personal entries to Firestore, deployed on Firebase Hosting.",
+  "main": "copy-accessed-boards.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "firebase-admin": "^13.6.1"
+  }
+}

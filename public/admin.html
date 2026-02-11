@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#3b82f6" />
+    <title>Shared Admin Controls</title>
+    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+  </head>
+  <body class="admin-page">
+    <header>
+      <nav class="year-links">
+        <select id="year-select" class="year-select">
+          <option value="" selected disabled>Select Contest...</option>
+        </select>
+        <div class="actions">
+          <a href="/index.html" class="btn-link">Home</a>
+        </div>
+      </nav>
+    </header>
+
+      <div id="creator-banner" class="hint" style="text-align:center;padding:8px;display:none;"></div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <section id="admin-section" class="admin-controls">
+      <div class="admin-line" id="create-board">
+        <strong>Create New Board</strong>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="new-label" placeholder="Label (e.g., Family_Game)" maxlength="30" style="flex:1 1 100%;min-width:200px;" />
+          <input type="text" id="new-team-a" placeholder="Team A" maxlength="30" style="flex:1 1 100%;min-width:120px;" />
+          <input type="text" id="new-team-b" placeholder="Team B" maxlength="30" style="flex:1 1 100%;min-width:120px;" />
+          <input type="text" id="new-short-code" placeholder="Short code (optional, e.g., sb60)" maxlength="20" style="flex:1 1 100%;min-width:200px;" />
+          <span style="position:relative;display:inline-block;flex:1;min-width:180px;">
+            <input type="password" id="new-password" placeholder="Password (required)" maxlength="50" style="width:100%;padding-right:30px;" />
+            <button id="toggle-new-password" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:2px 4px;border:none;background:transparent;cursor:pointer;font-size:14px;">👁</button>
+          </span>
+          <button id="create-board-btn">Create</button>
+        </div>
+        <p class="hint">Boards created here are scoped to your ID and require a password for guests. Short codes make sharing easier (e.g., squares-7da21.web.app/grid.html?code=sb60).</p>
+        <hr />
+      </div>
+      <p class="hint">Admin only (authorized emails). Only boards you created are listed.</p>
+    </section>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
+    <script src="/__/firebase/init.js"></script>
+    <script>
+      const PARTY_ID_PARAM = (function(){ try { return new URLSearchParams(location.search || '').get('PartyID') || ''; } catch { return ''; }})();
+      const yearSelect = document.getElementById('year-select');
+      if (yearSelect) {
+        yearSelect.addEventListener('change', (e) => {
+          const url = e.target.value;
+          if (url) window.location.href = url;
+        });
+      }
+      const adminSection = document.getElementById('admin-section');
+      const toast = document.getElementById('toast');
+      function showToast(message, options = {}) {
+        if (!toast) return;
+        toast.textContent = message;
+        if (options.redBorder) {
+          toast.style.border = '2px solid #ef4444';
+        } else {
+          toast.style.border = '';
+        }
+        toast.classList.remove('hidden');
+        setTimeout(() => {
+          toast.classList.add('hidden');
+          toast.style.border = '';
+        }, 1500);
+      }
+      function shuffleDigits() {
+        const arr = Array.from({ length: 10 }, (_, i) => i);
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+      }
+      function generateRandomId() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < 32; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      }
+      const db = firebase.firestore();
+      const auth = firebase.auth();
+
+      
+      async function ensureReservationsExists(yearId) {
+        try {
+          const ref = db.collection('grids').doc(yearId);
+          const snap = await ref.get();
+          const hasRes = snap.exists && snap.data() && snap.data().reservations !== undefined;
+          if (!hasRes) {
+            await ref.set({ reservations: {} }, { merge: true });
+          }
+        } catch (e) {
+          console.warn('ensureReservationsExists failed for', yearId, e);
+        }
+      }
+      (function enhanceYearSelectLabels(){
+        const DEFAULT_A = 'Team A';
+        const DEFAULT_B = 'Team B';
+        const select = document.getElementById('year-select');
+        if (!select) return;
+        const placeholder = select.querySelector('option[value=""]');
+        
+        // Get all boards created by the user
+        auth.onAuthStateChanged((user) => {
+          if (!user) {
+            if (placeholder) placeholder.textContent = 'Sign in to view boards';
+            return;
+          }
+          
+          if (placeholder) placeholder.textContent = 'Loading contests...';
+          const spinner = document.getElementById('year-loading');
+          if (spinner) spinner.classList.remove('hidden');
+          
+          console.log('Querying boards for user:', user.email);
+          
+          // Query all boards where createdBy matches user email
+          db.collection('grids')
+            .where('createdBy', '==', user.email)
+            .get()
+            .then((snapshot) => {
+              console.log('Query returned', snapshot.size, 'boards');
+              if (snapshot.empty) {
+                console.log('No boards found for', user.email);
+                if (placeholder) placeholder.textContent = 'No boards created yet';
+                if (spinner) spinner.classList.add('hidden');
+                return;
+              }
+              
+              snapshot.forEach((doc) => {
+                const id = doc.id;
+                const data = doc.data() || {};
+                console.log('Found board:', id, data);
+                const a = data.teamA || DEFAULT_A;
+                const b = data.teamB || DEFAULT_B;
+                const label = data.label || id.substring(0, 8);
+                const opt = document.createElement('option');
+                opt.value = '/grid.html?boardID=' + encodeURIComponent(id);
+                opt.textContent = `${label} — ${a} vs ${b}`;
+                select.appendChild(opt);
+              });
+              
+              if (placeholder) placeholder.textContent = 'Your Boards';
+              if (spinner) spinner.classList.add('hidden');
+            })
+            .catch((err) => {
+              console.warn('Failed to load boards:', err);
+              if (placeholder) placeholder.textContent = 'Your Boards';
+              if (spinner) spinner.classList.add('hidden');
+            });
+        });
+      })();
+      auth.onAuthStateChanged((user) => {
+        const authed = !!user;
+        adminSection.classList.toggle('hidden', !authed);
+        if (authed && user) {
+          // Show user email in banner
+          const creatorBanner = document.getElementById('creator-banner');
+          if (creatorBanner) {
+            creatorBanner.innerHTML = `Logged in as: <strong>${user.email}</strong>`;
+            creatorBanner.style.display = 'block';
+          }
+          
+          // Load and display admin blocks for user's created boards
+          db.collection('grids')
+            .where('createdBy', '==', user.email)
+            .get()
+            .then((snapshot) => {
+              console.log('Loading admin blocks for', snapshot.size, 'boards');
+              snapshot.forEach((doc) => {
+                const id = doc.id;
+                const data = doc.data() || {};
+                buildAdminBlock(id, data.partyId || '', true);
+              });
+            })
+            .catch((err) => {
+              console.warn('Failed to load admin blocks:', err);
+            });
+        }
+        // Upsert user profile
+        try { if (user && user.uid) { db.collection('users').doc(user.uid).set({ email: user.email || '', displayName: user.displayName || '', updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }); } } catch {}
+      });
+      
+      function getLabels(yearId) {
+        const aInput = document.querySelector(`.label-input.team-a[data-year="${yearId}"]`);
+        const bInput = document.querySelector(`.label-input.team-b[data-year="${yearId}"]`);
+        const teamA = (aInput && aInput.value.trim()) || 'Team A';
+        const teamB = (bInput && bInput.value.trim()) || 'Team B';
+        return { teamA, teamB };
+      }
+      function getScores(yearId) {
+        const q1El = document.querySelector(`.score-q1[data-year="${yearId}"]`);
+        const q2El = document.querySelector(`.score-q2[data-year="${yearId}"]`);
+        const q3El = document.querySelector(`.score-q3[data-year="${yearId}"]`);
+        const finalEl = document.querySelector(`.score-final[data-year="${yearId}"]`);
+        const scoreQ1 = (q1El && q1El.value || '').slice(0,6);
+        const scoreQ2 = (q2El && q2El.value || '').slice(0,6);
+        const scoreQ3 = (q3El && q3El.value || '').slice(0,6);
+        const scoreFinal = (finalEl && finalEl.value || '').slice(0,6);
+        return { scoreQ1, scoreQ2, scoreQ3, scoreFinal };
+      }
+      function buildAdminBlock(yearId, partyId, insertAtEnd=true) {
+        const section = document.getElementById('admin-section');
+        if (!section || document.querySelector(`.admin-block[data-year="${yearId}"]`)) return;
+        const block = document.createElement('div');
+        block.className = 'admin-block';
+        block.setAttribute('data-year', yearId);
+        const initialHeading = yearId.substring(0, 8);
+        const adminHref = '/grid.html?boardID=' + encodeURIComponent(yearId);
+        block.innerHTML = `
+          <div class="admin-line"><strong class="board-heading" data-year="${yearId}">${initialHeading}</strong> <a href="${adminHref}" style="margin-left:8px;">Open Board</a></div>
+          <div style="border:2px solid #3b82f6;border-radius:8px;padding:12px;margin-bottom:8px;">
+            <div class="admin-line labels-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span style="white-space:nowrap;">Label:</span>
+              <input type="text" class="label-input label-name" data-year="${yearId}" placeholder="Page Label" maxlength="30" style="flex:1;" />
+            </div>
+            <div class="admin-line labels-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span style="white-space:nowrap;">Team A:</span>
+              <input type="text" class="label-input team-a" data-year="${yearId}" placeholder="Team A" maxlength="30" style="flex:1;" />
+            </div>
+            <div class="admin-line labels-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span style="white-space:nowrap;">Team B:</span>
+              <input type="text" class="label-input team-b" data-year="${yearId}" placeholder="Team B" maxlength="30" style="flex:1;" />
+            </div>
+            <div class="admin-line labels-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span style="white-space:nowrap;">Short code:</span>
+              <input type="text" class="label-input short-code" data-year="${yearId}" placeholder="e.g., sb60" maxlength="20" style="flex:1;" />
+            </div>
+            <div class="admin-line labels-row" style="display:flex;gap:8px;align-items:center;">
+              <span style="white-space:nowrap;">Password:</span>
+              <span class="password-field-wrapper" style="position:relative;display:inline-block;flex:1;">
+                <input type="password" class="label-input board-password" data-year="${yearId}" placeholder="Board Password" maxlength="50" style="width:100%;padding-right:30px;" />
+                <button class="toggle-password" data-year="${yearId}" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:2px 4px;border:none;background:transparent;cursor:pointer;font-size:14px;">👁</button>
+              </span>
+              <button class="save-all" data-year="${yearId}">Update</button>
+            </div>
+          </div>
+          <div style="border:2px solid #3b82f6;border-radius:8px;padding:12px;margin-bottom:8px;">
+            <div class="score-heading" data-year="${yearId}" style="text-align:center;font-weight:600;margin-bottom:12px;">Team A - Team B</div>
+            <div class="admin-line scores-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span style="white-space:nowrap;">Q1:</span>
+              <input type="text" class="score-input score-q1" data-year="${yearId}" placeholder="0-0" maxlength="6" style="flex:1;" />
+            </div>
+            <div class="admin-line scores-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span style="white-space:nowrap;">Q2:</span>
+              <input type="text" class="score-input score-q2" data-year="${yearId}" placeholder="0-0" maxlength="6" style="flex:1;" />
+            </div>
+            <div class="admin-line scores-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span style="white-space:nowrap;">Q3:</span>
+              <input type="text" class="score-input score-q3" data-year="${yearId}" placeholder="0-0" maxlength="6" style="flex:1;" />
+            </div>
+            <div class="admin-line scores-row" style="display:flex;gap:8px;align-items:center;">
+              <span style="white-space:nowrap;">Final:</span>
+              <input type="text" class="score-input score-final" data-year="${yearId}" placeholder="0-0" maxlength="6" style="flex:1;" />
+              <button class="save-score" data-year="${yearId}">Update</button>
+            </div>
+          </div>
+          <div class="admin-line">
+            <span>Users with selections:</span>
+            <span class="user-emails" data-year="${yearId}" style="color:#666;font-size:12px;margin-left:8px;">Loading...</span>
+          </div>
+          <div class="admin-line" style="gap:8px;">
+            <button data-year="${yearId}" class="admin-btn toggle-numbers">Populate random numbers</button>
+            <button data-year="${yearId}" class="admin-btn lock">Lock the board</button>
+          </div>
+          <div class="admin-line" style="gap:8px;">
+            <button data-year="${yearId}" class="admin-btn delete" style="background:#b91c1c;">Delete this board</button>
+          </div>
+          <hr style="border:none;border-top:3px solid #000000;margin:16px 0;" />
+        `;
+        const createRow = document.getElementById('create-board');
+        if (insertAtEnd) section.appendChild(block); else section.insertBefore(block, createRow.nextSibling);
+        db.collection('grids').doc(yearId).get().then((doc) => {
+          const aInput = block.querySelector(`.label-input.team-a[data-year="${yearId}"]`);
+          const bInput = block.querySelector(`.label-input.team-b[data-year="${yearId}"]`);
+          const nameInput = block.querySelector(`.label-input.label-name[data-year="${yearId}"]`);
+          const passwordInput = block.querySelector(`.label-input.board-password[data-year="${yearId}"]`);
+          const shortCodeInput = block.querySelector(`.label-input.short-code[data-year="${yearId}"]`);
+          const q1Input = block.querySelector(`.score-q1[data-year="${yearId}"]`);
+          const q2Input = block.querySelector(`.score-q2[data-year="${yearId}"]`);
+          const q3Input = block.querySelector(`.score-q3[data-year="${yearId}"]`);
+          const finalInput = block.querySelector(`.score-final[data-year="${yearId}"]`);
+          const usersSpan = block.querySelector(`.user-emails[data-year="${yearId}"]`);
+          const scoreHeading = block.querySelector(`.score-heading[data-year="${yearId}"]`);
+          const lockBtn = block.querySelector(`.admin-btn.lock[data-year="${yearId}"]`);
+          const toggleNumbersBtn = block.querySelector(`.admin-btn.toggle-numbers[data-year="${yearId}"]`);
+          if (doc.exists) {
+            const data = doc.data() || {};
+            if (aInput) aInput.value = data.teamA || '';
+            if (bInput) bInput.value = data.teamB || '';
+            if (nameInput) nameInput.value = data.label || '';
+            if (passwordInput) passwordInput.value = data.password || '';
+            if (shortCodeInput) shortCodeInput.value = data.shortCode || '';
+            if (q1Input) q1Input.value = data.scoreQ1 || '';
+            if (q2Input) q2Input.value = data.scoreQ2 || '';
+            if (q3Input) q3Input.value = data.scoreQ3 || '';
+            if (finalInput) finalInput.value = data.scoreFinal || '';
+            
+            // Update lock button text based on current state
+            if (lockBtn) {
+              const isLocked = !!(data.locked);
+              lockBtn.textContent = isLocked ? 'Unlock the board' : 'Lock the board';
+            }
+            
+            // Update toggle numbers button text based on whether board has numbers
+            if (toggleNumbersBtn) {
+              const hasNumbers = !!(data.topRow && data.firstColumn);
+              toggleNumbersBtn.textContent = hasNumbers ? 'Clear random numbers' : 'Populate random numbers';
+            }
+            
+            // Update score heading with team names
+            if (scoreHeading) {
+              const teamA = data.teamA || 'Team A';
+              const teamB = data.teamB || 'Team B';
+              scoreHeading.textContent = `${teamA} - ${teamB}`;
+            }
+            
+            // Extract unique user emails from reservations
+            if (usersSpan) {
+              const reservations = data.reservations || {};
+              const emails = new Set();
+              Object.values(reservations).forEach(reservation => {
+                if (reservation && typeof reservation === 'object' && reservation.email) {
+                  emails.add(reservation.email);
+                }
+              });
+              if (emails.size > 0) {
+                usersSpan.textContent = Array.from(emails).sort().join(', ');
+              } else {
+                usersSpan.textContent = 'None';
+              }
+            }
+            
+            const headerEl = block.querySelector(`.board-heading[data-year="${yearId}"]`);
+            if (headerEl) {
+              const DEFAULT_A = 'Team A';
+              const DEFAULT_B = 'Team B';
+              const baseLabel = data.label || yearId.replace(/_/g,' ');
+              const aName = data.teamA || DEFAULT_A;
+              const bName = data.teamB || DEFAULT_B;
+              headerEl.textContent = `${baseLabel} — ${aName} vs ${bName}`;
+            }
+          } else if (usersSpan) {
+            usersSpan.textContent = 'None';
+          }
+        }).catch(() => {});
+        block.querySelectorAll('.save-labels').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (adminSection.classList.contains('hidden')) return;
+            const yearId2 = e.currentTarget.getAttribute('data-year');
+            const { teamA, teamB } = getLabels(yearId2);
+            const labelInput = block.querySelector(`.label-input.label-name[data-year="${yearId2}"]`);
+            const labelVal = (labelInput && labelInput.value.trim()) || '';
+            btn.disabled = true;
+            try {
+              await ensureReservationsExists(yearId2);
+              const payload = { teamA, teamB, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+              if (labelVal) payload.label = labelVal;
+              if (PARTY_ID_PARAM) payload.partyId = PARTY_ID_PARAM;
+              await db.collection('grids').doc(yearId2).set(payload, { merge: true });
+              showToast('Labels saved ' + yearId2);
+              try {
+                const DEFAULT_A = 'Team A';
+                const DEFAULT_B = 'Team B';
+                const headerEl = block.querySelector(`.board-heading[data-year="${yearId2}"]`);
+                const aName = teamA || DEFAULT_A;
+                const bName = teamB || DEFAULT_B;
+                const baseLabel = labelVal || yearId2.replace(/_/g,' ');
+                if (headerEl) headerEl.textContent = `${baseLabel} — ${aName} vs ${bName}`;
+                const select = document.getElementById('year-select');
+                if (select) {
+                  const href = '/grid.html?doc=' + encodeURIComponent(yearId2) + '&PartyID=' + encodeURIComponent(PARTY_ID_PARAM);
+                  const opt = select.querySelector(`option[value="${href}"]`);
+                  if (opt) opt.textContent = `${baseLabel} — ${aName} vs ${bName}`;
+                }
+              } catch {}
+            } catch (err) { console.warn('Failed to save labels:', err); showToast('Save failed', { redBorder: true }); }
+            finally { btn.disabled = false; }
+          });
+        });
+        block.querySelectorAll('.save-password').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (adminSection.classList.contains('hidden')) return;
+            const yearId2 = e.currentTarget.getAttribute('data-year');
+            const passwordInput = block.querySelector(`.label-input.board-password[data-year="${yearId2}"]`);
+            const password = (passwordInput && passwordInput.value.trim()) || '';
+            if (!password) { showToast('Enter a password'); return; }
+            btn.disabled = true;
+            try {
+              await ensureReservationsExists(yearId2);
+              const payload = { password, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+              if (PARTY_ID_PARAM) payload.partyId = PARTY_ID_PARAM;
+              await db.collection('grids').doc(yearId2).set(payload, { merge: true });
+              
+              // Store updated password in localStorage
+              try {
+                const stored = JSON.parse(localStorage.getItem('shared_grid_passwords') || '{}');
+                stored[yearId2] = password;
+                localStorage.setItem('shared_grid_passwords', JSON.stringify(stored));
+              } catch (err) { console.warn('Failed to store updated password:', err); }
+              
+              showToast('Password updated ' + yearId2);
+            } catch (err) { console.warn('Failed to update password:', err); showToast('Update failed', { redBorder: true }); }
+            finally { btn.disabled = false; }
+          });
+        });
+        block.querySelectorAll('.toggle-password').forEach((btn) => {
+          btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const yearId2 = e.currentTarget.getAttribute('data-year');
+            const passwordInput = block.querySelector(`.label-input.board-password[data-year="${yearId2}"]`);
+            if (passwordInput) {
+              const isPassword = passwordInput.type === 'password';
+              passwordInput.type = isPassword ? 'text' : 'password';
+              btn.textContent = isPassword ? '🙈' : '👁';
+            }
+          });
+        });
+        block.querySelectorAll('.save-all').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (adminSection.classList.contains('hidden')) return;
+            const yearId2 = e.currentTarget.getAttribute('data-year');
+            const { teamA, teamB } = getLabels(yearId2);
+            const labelInput = block.querySelector(`.label-input.label-name[data-year="${yearId2}"]`);
+            const labelVal = (labelInput && labelInput.value.trim()) || '';
+            const passwordInput = block.querySelector(`.label-input.board-password[data-year="${yearId2}"]`);
+            const password = (passwordInput && passwordInput.value.trim()) || '';
+            const shortCodeInput = block.querySelector(`.label-input.short-code[data-year="${yearId2}"]`);
+            const shortCode = (shortCodeInput && shortCodeInput.value.trim().toLowerCase()) || '';
+            
+            // Validate short code format if provided
+            if (shortCode && !/^[a-z0-9-_]+$/.test(shortCode)) {
+              showToast('Short code can only contain letters, numbers, hyphens, and underscores', { redBorder: true });
+              return;
+            }
+            
+            // Check if short code is already in use by another board
+            if (shortCode) {
+              try {
+                const existingCode = await db.collection('shortCodes').doc(shortCode).get();
+                if (existingCode.exists) {
+                  const codeData = existingCode.data();
+                  if (codeData.boardId !== yearId2) {
+                    showToast('Short code already in use by another board', { redBorder: true });
+                    return;
+                  }
+                }
+              } catch (err) {
+                console.error('Failed to check short code:', err);
+                showToast('Error checking short code', { redBorder: true });
+                return;
+              }
+            }
+            
+            btn.disabled = true;
+            try {
+              await ensureReservationsExists(yearId2);
+              const payload = { teamA, teamB, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+              if (labelVal) payload.label = labelVal;
+              if (password) payload.password = password;
+              payload.shortCode = shortCode;
+              if (PARTY_ID_PARAM) payload.partyId = PARTY_ID_PARAM;
+              
+              // Get current short code to check if we need to clean up old one
+              const currentDoc = await db.collection('grids').doc(yearId2).get();
+              const currentShortCode = currentDoc.exists ? (currentDoc.data().shortCode || '') : '';
+              
+              await db.collection('grids').doc(yearId2).set(payload, { merge: true });
+              
+              // Update short code mapping
+              if (shortCode) {
+                await db.collection('shortCodes').doc(shortCode).set({
+                  boardId: yearId2,
+                  createdBy: auth.currentUser?.email || 'Unknown',
+                  updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+              }
+              
+              // Delete old short code if it changed
+              if (currentShortCode && currentShortCode !== shortCode) {
+                await db.collection('shortCodes').doc(currentShortCode).delete();
+              }
+              
+              // Update header
+              const DEFAULT_A = 'Team A';
+              const DEFAULT_B = 'Team B';
+              const headerEl = block.querySelector(`.board-heading[data-year="${yearId2}"]`);
+              const aName = teamA || DEFAULT_A;
+              const bName = teamB || DEFAULT_B;
+              const baseLabel = labelVal || yearId2.replace(/_/g,' ');
+              if (headerEl) headerEl.textContent = `${baseLabel} — ${aName} vs ${bName}`;
+              
+              // Update score heading
+              const scoreHeading = block.querySelector(`.score-heading[data-year="${yearId2}"]`);
+              if (scoreHeading) scoreHeading.textContent = `${aName} - ${bName}`;
+              
+              // Update dropdown
+              const select = document.getElementById('year-select');
+              if (select) {
+                const href = '/grid.html?doc=' + encodeURIComponent(yearId2) + '&PartyID=' + encodeURIComponent(PARTY_ID_PARAM);
+                const opt = select.querySelector(`option[value="${href}"]`);
+                if (opt) opt.textContent = `${baseLabel} — ${aName} vs ${bName}`;
+              }
+              
+              // Store password in localStorage if provided
+              if (password) {
+                try {
+                  const stored = JSON.parse(localStorage.getItem('shared_grid_passwords') || '{}');
+                  stored[yearId2] = password;
+                  localStorage.setItem('shared_grid_passwords', JSON.stringify(stored));
+                } catch (err) { console.warn('Failed to store password:', err); }
+              }
+              
+              showToast('Updated ' + (shortCode ? `(code: ${shortCode})` : yearId2));
+            } catch (err) { console.warn('Failed to update:', err); showToast('Update failed', { redBorder: true }); }
+            finally { btn.disabled = false; }
+          });
+        });
+        block.querySelectorAll('.save-score').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (adminSection.classList.contains('hidden')) return;
+            const yearId2 = e.currentTarget.getAttribute('data-year');
+            const scores = getScores(yearId2);
+            btn.disabled = true;
+            const ref = db.collection('grids').doc(yearId2);
+            try {
+              await ensureReservationsExists(yearId2);
+              const payload = { ...scores, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+              if (PARTY_ID_PARAM) payload.partyId = PARTY_ID_PARAM;
+              await ref.set(payload, { merge: true });
+              showToast('Scores saved ' + yearId2);
+            } catch (err) { console.warn('Failed to save scores:', err); showToast('Save failed', { redBorder: true }); }
+            finally { btn.disabled = false; }
+          });
+        });
+        block.querySelectorAll('.admin-btn.toggle-numbers').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (adminSection.classList.contains('hidden')) return;
+            const yearId2 = e.currentTarget.getAttribute('data-year');
+            const { teamA, teamB } = getLabels(yearId2);
+            
+            // Check current state from Firestore
+            const ref = db.collection('grids').doc(yearId2);
+            const doc = await ref.get();
+            const data = doc.exists ? (doc.data() || {}) : {};
+            const hasNumbers = !!(data.topRow && data.firstColumn);
+            
+            btn.disabled = true;
+            try {
+              await ensureReservationsExists(yearId2);
+              
+              if (hasNumbers) {
+                // Clear the numbers
+                const payload = { topRow: firebase.firestore.FieldValue.delete(), firstColumn: firebase.firestore.FieldValue.delete(), teamA, teamB, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+                if (PARTY_ID_PARAM) payload.partyId = PARTY_ID_PARAM;
+                await ref.set(payload, { merge: true });
+                btn.textContent = 'Populate random numbers';
+                showToast('Cleared ' + yearId2);
+              } else {
+                // Populate with random numbers
+                const topDigits = shuffleDigits();
+                const leftDigits = shuffleDigits();
+                const payload = { topRow: topDigits, firstColumn: leftDigits, teamA, teamB, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+                if (PARTY_ID_PARAM) payload.partyId = PARTY_ID_PARAM;
+                await ref.set(payload, { merge: true });
+                btn.textContent = 'Clear random numbers';
+                showToast('Populated ' + yearId2);
+              }
+            } catch (err) {
+              console.warn('Failed to toggle numbers:', err);
+              showToast('Operation failed', { redBorder: true });
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+        block.querySelectorAll('.admin-btn.lock').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (adminSection.classList.contains('hidden')) return;
+            const yearId2 = btn.getAttribute('data-year');
+            const ref = db.collection('grids').doc(yearId2);
+            btn.disabled = true;
+            try {
+              const doc = await ref.get();
+              const current = doc.exists ? !!(doc.data() && doc.data().locked) : false;
+              const next = !current;
+              await ensureReservationsExists(yearId2);
+              const payload = { locked: next, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+              if (PARTY_ID_PARAM) payload.partyId = PARTY_ID_PARAM;
+              await ref.set(payload, { merge: true });
+              btn.textContent = next ? 'Unlock the board' : 'Lock the board';
+              showToast((next ? 'Locked ' : 'Unlocked ') + yearId2);
+            } catch (err) {
+              console.error('Failed to toggle lock:', err);
+              showToast('Lock toggle failed: ' + (err.message || 'Unknown error'), { redBorder: true });
+            } finally {
+              btn.disabled = false;
+            }
+          });
+        });
+        block.querySelectorAll('.admin-btn.delete').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (adminSection.classList.contains('hidden')) return;
+            const yearId2 = e.currentTarget.getAttribute('data-year');
+            const proceed = confirm(`Delete board "${yearId2}"? This removes the board doc but not users.`);
+            if (!proceed) return;
+            try {
+              await db.collection('grids').doc(yearId2).delete();
+              const blk = document.querySelector(`.admin-block[data-year="${yearId2}"]`);
+              if (blk && blk.parentNode) blk.parentNode.removeChild(blk);
+              const select = document.getElementById('year-select');
+              if (select) {
+                const dynamicHref = '/grid.html?doc=' + encodeURIComponent(yearId2) + '&PartyID=' + encodeURIComponent(PARTY_ID_PARAM);
+                Array.from(select.options).forEach((opt) => {
+                  if ((opt.value || '') === dynamicHref) opt.remove();
+                });
+              }
+              showToast('Deleted ' + yearId2);
+            } catch (err) {
+              console.warn('Failed to delete board:', err);
+              showToast('Delete failed', { redBorder: true });
+            }
+          });
+        });
+      }
+      (function setupCreateBoard(){
+        const btn = document.getElementById('create-board-btn');
+        if (!btn) return;
+        
+        // Toggle password visibility for create board
+        const toggleBtn = document.getElementById('toggle-new-password');
+        const passwordInput = document.getElementById('new-password');
+        if (toggleBtn && passwordInput) {
+          toggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const isPassword = passwordInput.type === 'password';
+            passwordInput.type = isPassword ? 'text' : 'password';
+            toggleBtn.textContent = isPassword ? '🙈' : '👁';
+          });
+        }
+        
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          if (adminSection.classList.contains('hidden')) return;
+          
+          const user = auth.currentUser;
+          if (!user || !user.uid) { alert('Please sign in'); return; }
+          
+          const rawLabel = (document.getElementById('new-label').value || '').trim();
+          const teamA = (document.getElementById('new-team-a').value || '').trim() || 'Team A';
+          const teamB = (document.getElementById('new-team-b').value || '').trim() || 'Team B';
+          const password = (document.getElementById('new-password').value || '').trim();
+          const shortCode = (document.getElementById('new-short-code').value || '').trim().toLowerCase();
+          
+          if (!rawLabel) { showToast('Enter a label', { redBorder: true }); return; }
+          if (!password) { showToast('Enter a password', { redBorder: true }); return; }
+          
+          // Validate short code format if provided
+          if (shortCode && !/^[a-z0-9-_]+$/.test(shortCode)) {
+            showToast('Short code can only contain letters, numbers, hyphens, and underscores', { redBorder: true });
+            return;
+          }
+          
+          // Check if short code is already in use
+          if (shortCode) {
+            try {
+              const existingCode = await db.collection('shortCodes').doc(shortCode).get();
+              if (existingCode.exists) {
+                showToast('Short code already in use. Please choose another.', { redBorder: true });
+                return;
+              }
+            } catch (err) {
+              console.error('Failed to check short code:', err);
+              showToast('Error checking short code', { redBorder: true });
+              return;
+            }
+          }
+          
+          // Generate random boardID
+          const boardId = generateRandomId();
+          
+          try {
+            await ensureReservationsExists(boardId);
+            const payload = { 
+              label: rawLabel, 
+              teamA, 
+              teamB, 
+              password, 
+              createdBy: user.email || 'Unknown',
+              boardId: boardId,
+              shortCode: shortCode || '',
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp() 
+            };
+            await db.collection('grids').doc(boardId).set(payload, { merge: true });
+            
+            // Store short code mapping if provided
+            if (shortCode) {
+              await db.collection('shortCodes').doc(shortCode).set({
+                boardId: boardId,
+                createdBy: user.email || 'Unknown',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+              });
+            }
+            
+            // Store password in localStorage so user isn't prompted when opening the board
+            try {
+              const stored = JSON.parse(localStorage.getItem('shared_grid_passwords') || '{}');
+              stored[boardId] = password;
+              localStorage.setItem('shared_grid_passwords', JSON.stringify(stored));
+            } catch (err) { console.warn('Failed to store password:', err); }
+            
+            buildAdminBlock(boardId, '', true);
+            showToast('Created board ' + rawLabel + (shortCode ? ` (code: ${shortCode})` : ''));
+            // Add to dropdown
+            const select = document.getElementById('year-select');
+            if (select) {
+              const opt = document.createElement('option');
+              opt.value = '/grid.html?boardID=' + encodeURIComponent(boardId);
+              opt.textContent = `${rawLabel} — ${teamA} vs ${teamB}`;
+              select.appendChild(opt);
+            }
+            // Clear form
+            document.getElementById('new-label').value = '';
+            document.getElementById('new-team-a').value = '';
+            document.getElementById('new-team-b').value = '';
+            document.getElementById('new-short-code').value = '';
+            document.getElementById('new-password').value = '';
+          } catch (err) { 
+            console.error('Create board failed:', err); 
+            showToast('Create failed: ' + (err.message || err), { redBorder: true }); 
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

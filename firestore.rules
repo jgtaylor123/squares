@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /entries/{entryId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // Grid year configurations and reservations
+    match /grids/{yearId} {
+      function isAdmin() {
+        return request.auth != null && request.auth.token.email == 'jgtaylor@gmail.com';
+      }
+
+      allow read: if true;
+      // Broaden permissions: any authenticated user can create, update, or delete
+      // grid documents. Admin UI remains hidden via client-side gating.
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+
+    // User directory for mapping uid -> email/displayName
+    match /users/{uid} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Short code mappings for board IDs
+    match /shortCodes/{code} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+  }
+}

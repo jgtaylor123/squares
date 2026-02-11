@@ -1,0 +1,28 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "/grid-common.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache" }
+        ]
+      }
+    ],
+    "redirects": [
+      { "source": "/favicon.ico", "destination": "/favicon.svg", "type": 301 },
+      { "source": "/shared/index.html", "destination": "/index.html", "type": 301 },
+      { "source": "/shared/grid.html", "destination": "/grid.html", "type": 301 },
+      { "source": "/shared/admin.html", "destination": "/admin.html", "type": 301 },
+      { "source": "/shared/grid-common.js", "destination": "/grid-common.js", "type": 301 }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

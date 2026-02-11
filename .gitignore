@@ -1,0 +1,25 @@
+# Firebase service account key (SENSITIVE - DO NOT COMMIT)
+serviceAccountKey.json
+
+# Node modules
+node_modules/
+
+# Firebase cache and logs
+.firebase/
+firebase-debug.log
+firestore-debug.log
+
+# System files
+.DS_Store
+.vscode/
+
+# Local environment files
+.env
+.env.local
+
+# Build outputs
+dist/
+build/
+
+# Lock files (optional - some teams commit these)
+# package-lock.json
