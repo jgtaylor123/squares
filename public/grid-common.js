@@ -1009,6 +1009,12 @@
       text-align: center;
       margin-bottom: 8px;
     }
+    .team-a-label-bottom {
+      font-size: 16px;
+      font-weight: 600;
+      text-align: center;
+      margin-top: 8px;
+    }
     .grid-container {
       display: flex;
       gap: 8px;
@@ -1098,7 +1104,9 @@
     <div class="grid-container">
       <div class="team-b-label">${teamB}</div>
       <div class="grid" id="print-grid"></div>
+      <div class="team-b-label">${teamB}</div>
     </div>
+    <div class="team-a-label-bottom">${teamA}</div>
   </div>
   <script>
     const firstColumn = ${JSON.stringify(firstColumn)};
