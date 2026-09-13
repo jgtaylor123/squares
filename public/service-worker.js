@@ -1,4 +1,4 @@
-const CACHE_NAME = 'squares-v4';
+const CACHE_NAME = 'squares-v6';
 const urlsToCache = [
   '/index.html',
   '/grid.html',

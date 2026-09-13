@@ -5,11 +5,73 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#3b82f6" />
     <title>Football Squares Board</title>
-    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=3" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
   </head>
-  <body class="home">
+  <body class="home splash-active">
+    <div class="home-auth-loading" id="home-auth-loading" role="status" aria-live="polite">
+      <span class="board-spinner" aria-hidden="true"></span>
+      <span>Loading...</span>
+    </div>
+    <div class="splash-screen" id="splash-screen" role="dialog" aria-modal="true" aria-labelledby="splash-title">
+      <div class="splash-panel">
+        <div class="splash-board" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span><span></span><span></span>
+          <span></span><span class="is-marked"></span><span></span><span></span><span></span><span></span><span></span><span class="is-marked"></span><span></span><span></span>
+          <span></span><span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          <span class="is-marked"></span><span></span><span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span><span></span><span></span><span class="is-marked"></span><span></span>
+          <span></span><span class="is-marked"></span><span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span><span class="is-marked"></span>
+          <span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span><span></span><span class="is-marked"></span><span></span><span></span>
+          <span class="is-marked"></span><span></span><span></span><span></span><span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span class="is-marked"></span><span></span><span></span><span></span><span></span><span class="is-marked"></span><span></span>
+        </div>
+        <div class="splash-content">
+          <p class="splash-kicker">Game day, sorted</p>
+          <h1 id="splash-title">Welcome to <strong>Football Squares</strong></h1>
+          <p class="splash-subtitle">Pick a square, track the score, and see who takes home the pot.</p>
+          <div class="splash-steps" aria-label="Getting started">
+            <button type="button" class="splash-step splash-step-action" id="enter-app">
+              <span class="splash-step-number">01</span>
+              <span><strong>Sign in</strong><small>Use Google or email to enter your account.</small></span>
+            </button>
+            <article class="splash-step">
+              <span class="splash-step-number">02</span>
+              <span><strong>Choose your squares</strong><small>Select a contest and reserve your spots.</small></span>
+            </article>
+            <article class="splash-step">
+              <span class="splash-step-number">03</span>
+              <span><strong>Watch the game</strong><small>Follow every quarter and see the winners.</small></span>
+            </article>
+          </div>
+        </div>
+        <p class="splash-note">Football squares, made simple.</p>
+      </div>
+      <div class="signin-modal" id="signin-modal" aria-hidden="true">
+        <div class="signin-dialog" role="dialog" aria-modal="true" aria-labelledby="signin-title">
+          <button type="button" class="signin-close" id="close-signin" aria-label="Close sign-in">&#215;</button>
+          <h2 id="signin-title">Sign in to Squares</h2>
+          <button id="modal-google-signin" class="signin-google" type="button">Sign in with Google</button>
+          <div class="signin-divider"><span>Or Email</span></div>
+          <section id="email-auth">
+            <form id="email-login-form">
+              <input type="email" id="email" placeholder="Email" required />
+              <span style="position:relative;display:block;width:100%;">
+                <input type="password" id="password" placeholder="Password" required style="width:100%;padding-right:30px;" />
+                <button type="button" id="toggle-password" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:2px 4px;border:none;background:transparent;cursor:pointer;font-size:14px;">&#128065;</button>
+              </span>
+              <div style="display:flex;align-items:center;gap:12px;margin:8px 0;">
+                <button type="submit">Submit</button>
+                <button type="button" id="resetPassword">Forgot password?</button>
+              </div>
+            </form>
+            <p class="hint">First submit will create an account if it doesn't exist.</p>
+          </section>
+        </div>
+      </div>
+    </div>
     <header>
       <nav class="year-links">
         <select id="year-select" class="year-select">
@@ -17,54 +79,38 @@
         </select>
         
         <div class="actions">
-          <button id="install-app" class="hidden" style="background: #10b981;">Install App</button>
-          <button id="google-signin">Sign in with Google</button>
+          <button id="show-home-help" class="instructions-button" type="button" aria-label="What to do next" title="What to do next">?</button>
+          <button id="install-app" class="hidden" style="background: #10b981;"><span class="desktop-button-label">Install App</span><span class="mobile-button-label">Install<br />App</span></button>
+          <a href="/admin.html" class="admin-link header-manage hidden">Admin</a>
+          <button id="google-signin"><span class="desktop-button-label">Sign in with Google</span><span class="mobile-button-label">Sign<br />Out</span></button>
         </div>
       </nav>
     </header>
     <hr />
     <h1 class="board-title">Football Squares Board</h1>
-    <section id="email-auth">
-      <h2>Email Login</h2>
-      <form id="email-login-form">
-        <input type="email" id="email" placeholder="Email" required />
-        <span style="position:relative;display:block;width:100%;">
-          <input type="password" id="password" placeholder="Password" required style="width:100%;padding-right:30px;" />
-          <button type="button" id="toggle-password" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);padding:2px 4px;border:none;background:transparent;cursor:pointer;font-size:14px;">👁</button>
-        </span>
-        <div style="display:flex;align-items:center;gap:12px;margin:8px 0;">
-          <button type="submit">Submit</button>
-          <button type="button" id="resetPassword">Forgot password?</button>
+    <section id="boards-home" class="hidden" aria-labelledby="boards-home-title">
+      <div class="boards-heading">
+        <div>
+          <p class="section-kicker">Your game boards</p>
+      <div id="home-help-modal" class="signin-modal" aria-hidden="true">
+        <div class="signin-dialog" role="dialog" aria-modal="true" aria-labelledby="home-help-title">
+          <button id="close-home-help" class="signin-close" type="button" aria-label="Close help">&#215;</button>
+          <p class="section-kicker">Football squares</p>
+          <h2 id="home-help-title">What to do next</h2>
+          <ol class="home-help-list" id="home-help-list">
+            <li>Sign in or create an account.</li>
+            <li>Choose a board you can access, or click <strong>Admin</strong> to create your own new board.</li>
+            <li>Open the board and choose your squares.</li>
+          </ol>
         </div>
-      </form>
-      <p class="hint">First submit will create an account if it doesn't exist.</p>
-    </section>
-
-    <section id="rules">
-      <h2>Square Selection Rules</h2>
-      <ol>
-        <li>Sign in and select a contest in the drop down</li>
-        <li>Reserve by clicking an "X" in the grid.</li>
-        <li>Only the reserver can cancel their own square.</li>
-        <li>Random numbers for the team scores will be generated at kick off</li>
-        <li>Payouts for 1st, 2nd, 3rd quarters and final (20%, 20%, 20% and 40% of total pot)</li>
-        <li>If the last digit of the score for each team lines up with one of your squares, you win the disignated amount.</li>
-      </ol>
-      
-      <div style="font-size: 0.9em;">
-        <p><strong>Pro tip:</strong> if you just want to create your own offline printed version:</p>
-        <ol>
-          <li>Sign in</li>
-          <li>Click "Admin" to generate a board</li>
-          <li>Populate the random numbers</li>
-          <li>Open the board and print it</li>
-          <li>Fold over the random number so they remain secret</li>
-          <li>Have everyone reserve all the squares by writing their initials in</li>
-          <li>Once all the squares are reserved, reveal the random numbers at kick off</li>
-        </ol>
+      </div>
+          <h2 id="boards-home-title">Pick up where you left off</h2>
+        </div>
+      </div>
+      <div id="boards-list" class="boards-list" aria-live="polite">
+        <p class="boards-loading">Loading your boards...</p>
       </div>
     </section>
-
     <!-- Grid moved to dedicated year pages -->
 
     <!-- Firebase SDKs (Compat for simplicity) -->
@@ -152,6 +198,7 @@
         const DEFAULT_A = 'Team A';
         const DEFAULT_B = 'Team B';
         const select = document.getElementById('year-select');
+        const boardsList = document.getElementById('boards-list');
         if (!select) return;
         
         loadDropdown = async function(user) {
@@ -199,19 +246,108 @@
                 console.warn('Board in accessedBoards does not exist:', boardId);
               }
             });
+
+            const boards = Array.from(boardsMap.values()).sort((leftDoc, rightDoc) => {
+              const left = leftDoc.data() || {};
+              const right = rightDoc.data() || {};
+              const getTime = (data) => {
+                const timestamp = data.createdAt || data.updatedAt;
+                if (timestamp && typeof timestamp.toMillis === 'function') return timestamp.toMillis();
+                if (timestamp && typeof timestamp.seconds === 'number') return timestamp.seconds * 1000;
+                return 0;
+              };
+              return getTime(right) - getTime(left);
+            });
             
             // Populate dropdown
-            boardsMap.forEach((doc) => {
+            boards.forEach((doc) => {
               const id = doc.id;
               const data = doc.data() || {};
               const a = data.teamA || DEFAULT_A;
               const b = data.teamB || DEFAULT_B;
               const label = data.label || id.substring(0, 8);
+              const year = data.superBowlYear || '';
               const opt = document.createElement('option');
               opt.value = '/grid.html?boardID=' + encodeURIComponent(id);
-              opt.textContent = `${label} — ${a} vs ${b}`;
+              opt.textContent = `${label}${year ? ` — SB ${year}` : ''} — ${a} vs ${b}`;
               select.appendChild(opt);
             });
+
+            if (boardsList) {
+              boardsList.replaceChildren();
+              if (boardsMap.size === 0) {
+                const empty = document.createElement('p');
+                empty.className = 'boards-empty';
+                empty.textContent = 'No boards yet. Create one to get started.';
+                boardsList.appendChild(empty);
+              } else {
+                const oneWeekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+                const getMillis = (value) => {
+                  if (!value) return 0;
+                  if (typeof value.toMillis === 'function') return value.toMillis();
+                  if (typeof value.seconds === 'number') return value.seconds * 1000;
+                  return 0;
+                };
+                const openBoards = boards.filter((doc) => {
+                  const data = doc.data() || {};
+                  return !data.locked || !data.lockedAt || getMillis(data.lockedAt) > oneWeekAgo;
+                });
+                const pastBoards = boards.filter((doc) => {
+                  const data = doc.data() || {};
+                  return !!data.locked && getMillis(data.lockedAt) > 0 && getMillis(data.lockedAt) <= oneWeekAgo;
+                });
+                const renderBoardGroup = (title, group) => {
+                  const heading = document.createElement('h3');
+                  heading.className = 'boards-group-title';
+                  heading.textContent = title;
+                  if (title === 'Past boards') {
+                    const divider = document.createElement('hr');
+                    divider.className = 'boards-group-divider';
+                    boardsList.appendChild(divider);
+                  }
+                  boardsList.appendChild(heading);
+                  if (group.length === 0) {
+                    const empty = document.createElement('p');
+                    empty.className = 'boards-group-empty';
+                    empty.textContent = 'None';
+                    boardsList.appendChild(empty);
+                    return;
+                  }
+                  group.forEach((doc) => {
+                  const id = doc.id;
+                  const data = doc.data() || {};
+                  const card = document.createElement('article');
+                  card.className = 'board-card';
+                  card.setAttribute('role', 'link');
+                  card.setAttribute('tabindex', '0');
+                  const label = document.createElement('p');
+                  label.className = 'board-card-label';
+                  const year = data.superBowlYear || '';
+                  label.textContent = `${data.label || id.substring(0, 8)}${year ? ` · Super Bowl ${year}` : ''}`;
+                  const matchup = document.createElement('h3');
+                  matchup.className = 'board-card-matchup';
+                  matchup.textContent = `${data.teamA || DEFAULT_A} vs ${data.teamB || DEFAULT_B}`;
+                  const open = document.createElement('a');
+                  open.className = 'board-card-open';
+                  open.href = '/grid.html?boardID=' + encodeURIComponent(id);
+                  open.textContent = 'Open board';
+                  card.append(label, matchup, open);
+                  card.addEventListener('click', (event) => {
+                    if (!event.target.closest('a')) window.location.href = open.href;
+                  });
+                  card.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      window.location.href = open.href;
+                    }
+                  });
+                  boardsList.appendChild(card);
+                  });
+                };
+                renderBoardGroup('Open boards', openBoards);
+                renderBoardGroup('Past boards', pastBoards);
+              }
+            }
             
             if (placeholder) placeholder.textContent = boardsMap.size > 0 ? 'Select contest' : 'No boards available';
             if (spinner) spinner.classList.add('hidden');
@@ -248,10 +384,47 @@
       const emailAuthSection = document.getElementById('email-auth');
       const emailInput = document.getElementById('email');
       const passwordInput = document.getElementById('password');
+      const homeHelpModal = document.getElementById('home-help-modal');
+      const showHomeHelpButton = document.getElementById('show-home-help');
+      const closeHomeHelpButton = document.getElementById('close-home-help');
+      const homeHelpList = document.getElementById('home-help-list');
+      function updateHomeHelp(user) {
+        if (!homeHelpList) return;
+        homeHelpList.innerHTML = user
+          ? '<li>Choose a board you can access, or click <strong>Admin</strong> to create your own new board.</li><li>Open the board and choose your squares.</li>'
+          : '<li>Sign in or create an account.</li><li>Choose a board you can access, or click <strong>Admin</strong> to create your own new board.</li><li>Open the board and choose your squares.</li>';
+      }
+      showHomeHelpButton.addEventListener('click', () => {
+        homeHelpModal.classList.add('is-open');
+        homeHelpModal.setAttribute('aria-hidden', 'false');
+        closeHomeHelpButton.focus();
+      });
+      closeHomeHelpButton.addEventListener('click', () => {
+        homeHelpModal.classList.remove('is-open');
+        homeHelpModal.setAttribute('aria-hidden', 'true');
+        showHomeHelpButton.focus();
+      });
+      homeHelpModal.addEventListener('click', (event) => {
+        if (event.target === homeHelpModal) closeHomeHelpButton.click();
+      });
+      const homeAuthLoading = document.getElementById('home-auth-loading');
+      function finishHomeAuthLoading() {
+        if (homeAuthLoading) homeAuthLoading.classList.add('is-hidden');
+      }
+      const boardsHome = document.getElementById('boards-home');
+      const rulesSection = document.getElementById('rules');
       // Journal UI removed; rules section shown instead
       function getWelcomeText(user) {
         const email = (user && user.email) ? user.email : '';
         return email ? `Welcome ${email}` : 'Welcome';
+      }
+      function setGoogleButtonLabel(authed) {
+        if (!googleSignInBtn) return;
+        const desktopLabel = googleSignInBtn.querySelector('.desktop-button-label');
+        const mobileLabel = googleSignInBtn.querySelector('.mobile-button-label');
+        if (desktopLabel) desktopLabel.textContent = authed ? 'Sign Out' : 'Sign in with Google';
+        if (mobileLabel) mobileLabel.innerHTML = authed ? 'Sign<br />Out' : 'Sign<br />in';
+        if (!desktopLabel && !mobileLabel) googleSignInBtn.textContent = authed ? 'Sign Out' : 'Sign in with Google';
       }
 
       // Grid rendering moved to year pages
@@ -263,23 +436,39 @@
         if (authed) {
           if (userInfoEl) {
             const welcome = getWelcomeText(user);
-            userInfoEl.innerHTML = `${welcome} <a href="/admin.html" class="admin-link" style="margin-left:8px;">Admin</a>`;
+            userInfoEl.textContent = welcome;
           }
           // Toggle Google button to Sign Out when authenticated
-          if (googleSignInBtn) googleSignInBtn.textContent = 'Sign Out';
+          setGoogleButtonLabel(true);
           // Hide email/password auth when logged in
           emailAuthSection.classList.add('hidden');
+          if (boardsHome) boardsHome.classList.remove('hidden');
+          if (rulesSection) rulesSection.classList.add('hidden');
           if (emailInput) emailInput.disabled = true;
           if (passwordInput) passwordInput.disabled = true;
+          if (window.closeSquaresSignin) window.closeSquaresSignin({ dismissSplash: true });
           // Grid is not on index
         } else {
           if (userInfoEl) userInfoEl.textContent = 'Not signed in';
           // Toggle Google button back to Sign In when not authenticated
-          if (googleSignInBtn) googleSignInBtn.textContent = 'Sign in with Google';
+          setGoogleButtonLabel(false);
           // Show email/password auth when logged out
           emailAuthSection.classList.remove('hidden');
+          if (boardsHome) boardsHome.classList.add('hidden');
+          if (rulesSection) rulesSection.classList.remove('hidden');
           if (emailInput) emailInput.disabled = false;
           if (passwordInput) passwordInput.disabled = false;
+          const splash = document.getElementById('splash-screen');
+          const signin = document.getElementById('signin-modal');
+          if (signin) {
+            signin.classList.remove('is-open');
+            signin.setAttribute('aria-hidden', 'true');
+          }
+          if (splash) {
+            splash.hidden = false;
+            splash.classList.remove('is-dismissed');
+            document.body.classList.add('splash-active');
+          }
           // Grid is not on index
         }
       }
@@ -317,7 +506,9 @@
       });
       auth.onAuthStateChanged(async (user) => {
         dlog('onAuthStateChanged', { authed: !!user, email: user && user.email, uid: user && user.uid });
+        updateHomeHelp(user);
         setAuthedUI(!!user, user || {});
+        finishHomeAuthLoading();
         
         // Check if user just logged in and track any pending board access
         if (user && user.uid) {
@@ -362,8 +553,7 @@
             const userInfoEl = document.getElementById('user-info');
             if (userInfoEl) {
               const welcome = getWelcomeText(user);
-              const adminHref = '/admin.html';
-              userInfoEl.innerHTML = `${welcome} <a href="${adminHref}" class="admin-link" style="margin-left:8px;">Admin</a>`;
+              userInfoEl.textContent = welcome;
             }
           }
         } catch (e) { dlog('PartyID assign error', { code: e && e.code, message: e && e.message }); }
@@ -517,6 +707,35 @@
           .then(reg => console.log('Service Worker registered'))
           .catch(err => console.log('Service Worker registration failed:', err));
       }
+    </script>
+    <script>
+      const splashScreen = document.getElementById('splash-screen');
+      const enterAppButton = document.getElementById('enter-app');
+      const signinModal = document.getElementById('signin-modal');
+      const closeSigninButton = document.getElementById('close-signin');
+      const modalGoogleSignInButton = document.getElementById('modal-google-signin');
+      window.closeSquaresSignin = ({ dismissSplash = false } = {}) => {
+        signinModal.classList.remove('is-open');
+        signinModal.setAttribute('aria-hidden', 'true');
+        if (dismissSplash) {
+          splashScreen.classList.add('is-dismissed');
+          document.body.classList.remove('splash-active');
+          window.setTimeout(() => { splashScreen.hidden = true; }, 450);
+        } else {
+          enterAppButton.focus();
+        }
+      };
+      enterAppButton.addEventListener('click', () => {
+        signinModal.classList.add('is-open');
+        signinModal.setAttribute('aria-hidden', 'false');
+        window.setTimeout(() => document.getElementById('email').focus(), 0);
+      });
+      closeSigninButton.addEventListener('click', () => {
+        window.closeSquaresSignin();
+      });
+      modalGoogleSignInButton.addEventListener('click', () => {
+        googleSignInBtn.click();
+      });
     </script>
     <div class="user-info-bottom" id="user-info"></div>
   </body>

@@ -119,6 +119,13 @@
   
   const gridRoot = document.getElementById('squares-grid');
   if (!gridRoot) return;
+  const boardLoading = document.getElementById('board-loading');
+  function setBoardLoading(isLoading, message = 'Loading board...') {
+    if (!boardLoading) return;
+    boardLoading.classList.toggle('is-hidden', !isLoading);
+    const messageEl = boardLoading.querySelector('span:last-child');
+    if (messageEl) messageEl.textContent = message;
+  }
   const toast = document.getElementById('toast');
   function showToast(message, options = {}) {
     if (!toast) return;
@@ -300,8 +307,6 @@
         const codeDoc = await db.collection('shortCodes').doc(code.toLowerCase()).get();
         if (codeDoc.exists) {
           const data = codeDoc.data();
-          // Show toast with red border when using short code
-          setTimeout(() => showToast(`Loaded board from short code: ${code}`, { redBorder: true }), 500);
           return data.boardId || '';
         } else {
           console.warn('Short code not found:', code);
@@ -517,6 +522,7 @@
     console.log('enhanceYearSelectLabels called');
     const DEFAULT_A = 'Team A';
     const DEFAULT_B = 'Team B';
+    const SHOW_ALL_BOARDS_EMAIL = 'jgtaylor@gmail.com';
     const select = document.getElementById('year-select');
     if (!select) {
       console.log('No year-select element found');
@@ -540,13 +546,19 @@
     if (spinner) spinner.classList.remove('hidden');
     Array.from(select.options).forEach((opt) => { if ((opt.value || '') !== '') opt.remove(); });
     
-    // Get user's accessed boards
-    db.collection('users').doc(user.uid).get().then((userDoc) => {
+    const loadBoards = user.email === SHOW_ALL_BOARDS_EMAIL
+      ? Promise.resolve({ exists: true, data: () => ({ accessedBoards: null }) })
+      : db.collection('users').doc(user.uid).get();
+    loadBoards.then((userDoc) => {
       console.log('User doc exists:', userDoc.exists);
       const userData = userDoc.exists ? userDoc.data() : {};
       const accessedBoards = userData.accessedBoards || [];
       console.log('accessedBoards:', accessedBoards);
       
+      if (user.email === SHOW_ALL_BOARDS_EMAIL) {
+        return db.collection('grids').get().then((docs) => ({ docs, accessedBoards: null }));
+      }
+
       if (accessedBoards.length === 0) {
         console.log('No boards in accessedBoards array');
         if (placeholder) placeholder.textContent = 'No boards accessed yet';
@@ -558,8 +570,15 @@
       const promises = accessedBoards.map(boardId => 
         db.collection('grids').doc(boardId).get()
       );
-      
-      Promise.all(promises).then((docs) => {
+      return Promise.all(promises).then((docs) => ({ docs, accessedBoards }));
+    }).then((result) => {
+      if (!result) return;
+      const docs = result.docs;
+      const accessedBoards = result.accessedBoards;
+      if (accessedBoards === null) {
+        console.log('Primary admin: loaded all boards', docs.length);
+      }
+      {
         docs.forEach((doc) => {
           if (!doc.exists) return;
           const id = doc.id;
@@ -582,16 +601,12 @@
             select.value = currentHref;
           }
         } catch {}
-      }).catch((err) => {
+      }
+    }).catch((err) => {
         console.warn('Failed to load boards:', err);
         if (placeholder) placeholder.textContent = 'Select Contest...';
         if (spinner) spinner.classList.add('hidden');
         select.dataset.loaded = '1';
-      });
-    }).catch((err) => {
-      console.warn('Failed to get user data:', err);
-      if (placeholder) placeholder.textContent = 'Select Contest...';
-      if (spinner) spinner.classList.add('hidden');
     });
   }
 
@@ -858,44 +873,20 @@
       homeLink.href = '/index.html';
     }
 
-    async function checkPasswordAccess(boardData) {
-      const boardPassword = boardData.password || '';
-      if (!boardPassword) return true; // no password required
-      
-      const storedPassword = getStoredPassword(boardId);
-      
-      if (storedPassword === boardPassword) {
-        return true;
-      }
-      
-      // Loop until correct password or user cancels
-      while (true) {
-        const enteredPassword = prompt('This board is password protected. Enter password:');
-        if (!enteredPassword) return false; // user cancelled
-        
-        if (enteredPassword === boardPassword) {
-          storePassword(boardId, enteredPassword);
-          return true;
-        } else {
-          alert('Incorrect password. Please try again.');
-        }
-      }
+    async function checkPasswordAccess() {
+      return true;
     }
 
     // Setup share button
     const shareBtn = document.getElementById('share-btn');
     if (shareBtn) {
       shareBtn.addEventListener('click', async () => {
-        // Get board data including short code and password
-        let password = '';
+        // Get board data including the short code
         let shortCode = '';
         try {
           const doc = await loadGridDoc();
           if (doc.exists) {
             const data = doc.data() || {};
-            if (data.password) {
-              password = data.password;
-            }
             if (data.shortCode) {
               shortCode = data.shortCode;
             }
@@ -909,11 +900,11 @@
           ? window.location.origin + '/grid.html?code=' + encodeURIComponent(shortCode)
           : window.location.origin + '/grid.html?boardID=' + encodeURIComponent(boardId);
         
-        const textToCopy = password ? `${url}\npassword = ${password}` : url;
+        const textToCopy = url;
         
         try {
           await navigator.clipboard.writeText(textToCopy);
-          showToast('URL and password copied to clipboard');
+          showToast('URL copied to clipboard');
         } catch {
           // Fallback for browsers that don't support clipboard API
           const textArea = document.createElement('textarea');
@@ -925,10 +916,10 @@
           try {
             document.execCommand('copy');
             document.body.removeChild(textArea);
-            showToast('URL and password copied to clipboard');
+            showToast('URL copied to clipboard');
           } catch (err) {
             document.body.removeChild(textArea);
-            prompt('Copy this URL and password:', textToCopy);
+            prompt('Copy this URL:', textToCopy);
           }
         }
       });
@@ -1274,6 +1265,7 @@
     // Wait for auth to initialize before loading grid
     auth.onAuthStateChanged(async () => {
       const currentUserId = auth.currentUser?.uid || null;
+      const previousUserId = lastUserId;
       console.log('Auth state changed. Last:', lastUserId, 'Current:', currentUserId, 'isFirst:', isFirstAuthChange);
       
       // Check if user just logged in and track any pending board access
@@ -1298,10 +1290,10 @@
       
       // Clear passwords only when switching between different actual users
       // Don't clear on initial page load or on logout->login same user
-      if (!isFirstAuthChange && lastUserId !== null && currentUserId !== null && lastUserId !== currentUserId) {
+      if (!isFirstAuthChange && previousUserId !== null && currentUserId !== null && previousUserId !== currentUserId) {
         console.log('User switched, clearing passwords. Old:', lastUserId, 'New:', currentUserId);
         clearStoredPasswords();
-      } else if (!isFirstAuthChange && lastUserId !== null && currentUserId === null) {
+      } else if (!isFirstAuthChange && previousUserId !== null && currentUserId === null) {
         // User logged out
         console.log('User logged out, clearing passwords');
         clearStoredPasswords();
@@ -1326,8 +1318,7 @@
               const user = auth.currentUser;
               if (user) {
                 const email = user.email || '';
-                const adminHref = '/admin.html';
-                el.innerHTML = `Welcome ${email} <a href="${adminHref}" class="admin-link" style="margin-left:8px;">Admin</a>`;
+                el.textContent = `Welcome ${email}`;
               } else {
                 el.textContent = 'Not signed in';
               }
@@ -1340,7 +1331,7 @@
       isFirstAuthChange = false;
       
       // Only enhance dropdown once on init, not on every auth change
-      if (lastUserId === currentUserId && lastUserId !== null) {
+      if (previousUserId === currentUserId && currentUserId !== null) {
         // Skip dropdown enhancement on subsequent auth changes for same user
       } else {
         // Reset the loaded flag when user changes so dropdown can refresh
@@ -1351,8 +1342,10 @@
     });
 
     function loadInitialGrid() {
+      setBoardLoading(true);
       loadGridDoc().then(async (doc) => {
         if (!doc.exists) {
+          setBoardLoading(true, 'Board not found');
           console.error('Board document does not exist for boardId:', boardId);
           showToast('Board not found');
           return;
@@ -1399,21 +1392,24 @@
         renderReservations(data);
         renderScores(data);
         reorderLayout();
+        setBoardLoading(false);
         try {
           const el = document.getElementById('user-tag-footer');
           if (el) {
             const user = auth.currentUser;
             if (user) {
               const email = user.email || '';
-              const adminHref = '/admin.html';
-              el.innerHTML = `Welcome ${email} <a href="${adminHref}" class="admin-link" style="margin-left:8px;">Admin</a>`;
+              el.textContent = `Welcome ${email}`;
             } else {
               el.textContent = 'Not signed in';
             }
             el.classList.remove('hidden');
           }
         } catch {}
-      }).catch((err) => console.warn('Load grid failed:', err));
+      }).catch((err) => {
+        console.warn('Load grid failed:', err);
+        setBoardLoading(true, 'Unable to load board');
+      });
     }
 
     gridRoot.addEventListener('click', async (e) => {
