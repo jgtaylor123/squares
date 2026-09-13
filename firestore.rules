@@ -9,16 +9,26 @@ service cloud.firestore {
 
     // Grid year configurations and reservations
     match /grids/{yearId} {
-      function isAdmin() {
-        return request.auth != null && request.auth.token.email == 'jgtaylor@gmail.com';
+      function isSuperAdmin() {
+        return request.auth != null && request.auth.token.superAdmin == true;
+      }
+
+      function isBoardOwner() {
+        return request.auth != null
+          && (resource.data.createdByUid == request.auth.uid
+            || resource.data.createdBy == request.auth.token.email);
+      }
+
+      function isReservationOnlyUpdate() {
+        return request.auth != null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reservations', 'updatedAt']);
       }
 
       allow read: if true;
-      // Broaden permissions: any authenticated user can create, update, or delete
-      // grid documents. Admin UI remains hidden via client-side gating.
-      allow create: if request.auth != null;
-      allow update: if request.auth != null;
-      allow delete: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow update: if isSuperAdmin() || isBoardOwner() || isReservationOnlyUpdate();
+      allow delete: if isSuperAdmin() || isBoardOwner();
     }
 
     // User directory for mapping uid -> email/displayName

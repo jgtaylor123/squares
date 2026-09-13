@@ -745,13 +745,14 @@
           const boardId = generateRandomId();
           
           try {
-            await ensureReservationsExists(boardId);
             const payload = { 
               label: rawLabel, 
               teamA, 
               teamB, 
+              reservations: {},
               superBowlYear: getSuperBowlYear(),
               createdBy: user.email || 'Unknown',
+              createdByUid: user.uid,
               boardId: boardId,
               shortCode: shortCode || '',
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
